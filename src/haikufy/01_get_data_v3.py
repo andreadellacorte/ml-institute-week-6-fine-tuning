@@ -27,14 +27,12 @@ def clean_query(query):
     return cleaned.strip()
 
 def preprocess_haiku(text):
-    # Remove all punctuation (ASCII)
-    text = text.translate(str.maketrans('', '', string.punctuation))
-    # Remove all newlines
-    text = text.replace('\n', ' ')
-    # Split on what used to be newlines or periods (now just spaces)
-    lines = [l.strip() for l in text.split('.') if l.strip()]
-    # Join with '/'
-    return ' / '.join(lines)
+    # Split into lines on original newlines
+    lines = text.splitlines()
+    # Remove punctuation and strip whitespace from each line
+    cleaned_lines = [l.translate(str.maketrans('', '', string.punctuation)).strip() for l in lines if l.strip()]
+    # Join with ' / '
+    return ' / '.join(cleaned_lines)
 
 def main():
     print("Starting data preparation process...")
@@ -51,7 +49,7 @@ def main():
     
     # Setup models for negative example generation
     print("Loading models for negative example generation...")
-    tkz = transformers.AutoTokenizer.from_pretrained('gpt2-xl')
+    tkz = transformers.AutoTokenizer.from_pretrained('gpt2-medium')
     tkz.pad_token = tkz.eos_token
     tkz.padding_side = 'left'
     model = transformers.AutoModelForCausalLM.from_pretrained('gpt2-xl')
