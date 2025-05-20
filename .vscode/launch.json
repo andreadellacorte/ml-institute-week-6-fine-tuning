@@ -1,0 +1,18 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    
+    {
+      "name": "Python: Haikufy (module)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "haikufy.haikufy",
+      "console": "integratedTerminal",
+      "args": ["train", "--help"],
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      },
+      "python": "${workspaceFolder}/.venv/bin/python"
+    }
+  ]
+}

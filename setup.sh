@@ -25,14 +25,11 @@ pip install --upgrade pip
 pip install -e .
 
 if [[ "$1" == "--gpu" ]]; then
-    echo -e "${BLUE}GPU mode selected. Installing GPU-specific dependencies...${RESET}"
+    echo -e "${BLUE}GPU mode selected (or default). Installing GPU-specific dependencies...${RESET}"
     pip install -r requirements-gpu.txt
-elif [[ "$1" == "--cpu" ]]; then
-    echo -e "${BLUE}CPU mode selected. Installing CPU-specific dependencies...${RESET}"
-    pip install -r requirements-cpu.txt
 else
-    echo -e "${RED}Invalid parameter. Please use '--gpu' for GPU dependencies or '--cpu' for CPU dependencies.${RESET}"
-    exit 1
+    echo -e "${BLUE}Installing CPU-specific dependencies...${RESET}"
+    pip install -r requirements-cpu.txt
 fi
 
 echo -e "${CYAN}Checking Weights & Biases login status...${RESET}"
