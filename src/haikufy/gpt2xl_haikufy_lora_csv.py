@@ -28,11 +28,13 @@ print(f"Loading models and datasets...")
 start_time = time.time()
 
 # Load models
-tkz = transformers.AutoTokenizer.from_pretrained('gpt2')
-# Set padding token to be the eos token
+# Use a larger model for better haiku generation
+MODEL_NAME = 'gpt2-xl'  # You can change to mistralai/Mistral-7B-v0.1 or another large model if desired
+print(f"Loading model: {MODEL_NAME}")
+tkz = transformers.AutoTokenizer.from_pretrained(MODEL_NAME)
 tkz.pad_token = tkz.eos_token
-plc = transformers.AutoModelForCausalLM.from_pretrained('gpt2')
-ref = transformers.AutoModelForCausalLM.from_pretrained('gpt2')
+plc = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME)
+ref = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME)
 
 # Set reference model to eval mode
 ref.eval()
@@ -66,7 +68,7 @@ optm = torch.optim.Adam(plc.parameters(), lr=1e-4)
 beta = 0.1
 
 # Custom Dataset for Haiku DPO CSV
-data_csv_path = Path('data/processed/haiku_dpo_v2/haiku_dpo_processed.csv')
+data_csv_path = Path('data/processed/haiku_dpo/haiku_dpo_processed.csv')
 
 class HaikuDPODataset(Dataset):
     def __init__(self, csv_path):
@@ -145,7 +147,7 @@ def train_step(qry, pos, neg):
 
 # Train the model
 print("Starting training...")
-num_epochs = 1
+num_epochs = 5
 
 for epoch in range(num_epochs):
     epoch_start = time.time()
@@ -176,7 +178,7 @@ for epoch in range(num_epochs):
 
 # Save the trained model
 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-output_dir = CHECKPOINTS_DATA_DIR / f"gpt2_haikufy_lora_model_{timestamp}"
+output_dir = CHECKPOINTS_DATA_DIR / f"{timestamp}_{MODEL_NAME}_haikufy_lora_model"
 output_dir.mkdir(parents=True, exist_ok=True)
 
 # Save the adapter weights separately - much smaller than full model
@@ -185,12 +187,17 @@ tkz.save_pretrained(output_dir)
 print(f"LoRA model saved to {output_dir}")
 
 # Test the model with some prompts
+def extract_haiku(text):
+    """Extract the first 3 non-empty lines from text as a haiku."""
+    lines = [l.strip() for l in text.strip().split('\n') if l.strip()]
+    return '\n'.join(lines[:3]) if len(lines) >= 3 else text.strip()
+
 def generate_haiku(prompt, max_length=50):
-    # Create proper input with attention mask
-    inputs = tkz(prompt, return_tensors='pt', padding=True)
+    # Prepend system instruction to bias haiku output
+    haiku_prompt = f"Reply in haiku form: {prompt}"
+    inputs = tkz(haiku_prompt, return_tensors='pt', padding=True)
     input_ids = inputs.input_ids.to(device)
     attention_mask = inputs.attention_mask.to(device)
-    
     with torch.no_grad():
         output = plc.generate(
             input_ids, 
@@ -202,20 +209,33 @@ def generate_haiku(prompt, max_length=50):
             do_sample=True,
             top_p=0.9,
         )
-    
     response = tkz.decode(output[0][input_ids.shape[1]:], skip_special_tokens=True)
-    return response
+    return extract_haiku(response)
 
 test_prompts = [
     "Write about nature",
     "Describe the mountains",
     "Tell me about the ocean",
     "Reflect on the changing seasons",
-    "Express feelings about love"
+    "Express feelings about love",
+    "Tell me about work",
+    "Write about the stars",
+    "Describe a sunset",
+    "Write about the moon",
+    "Express feelings about friendship",
+    "Write about the city",
 ]
 
 print("\nTesting the model with prompts:")
+test_outputs = []
 for prompt in test_prompts:
     print(f"\nPrompt: {prompt}")
     response = generate_haiku(prompt)
     print(f"Response:\n{response}")
+    test_outputs.append(f"Prompt: {prompt}\nResponse:\n{response}\n")
+
+# Save test outputs to file in output_dir
+output_file = output_dir / "test_prompts.txt"
+with open(output_file, "w", encoding="utf-8") as f:
+    f.write("\n".join(test_outputs))
+print(f"Test prompt outputs saved to {output_file}")

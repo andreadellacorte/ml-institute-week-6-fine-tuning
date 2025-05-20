@@ -25,6 +25,62 @@ def clean_query(query):
         cleaned = "Write about something"
     return cleaned.strip()
 
+def count_syllables(line):
+    # Simple syllable counter for English words
+    line = line.lower()
+    words = re.findall(r'[a-zA-Z]+', line)
+    count = 0
+    for word in words:
+        word = word.lower()
+        word = re.sub(r'[^a-z]', '', word)
+        if len(word) == 0:
+            continue
+        # Heuristic: count vowel groups as syllables
+        syllables = re.findall(r'[aeiouy]+', word)
+        count += max(1, len(syllables))
+    return count
+
+def is_haiku(text):
+    # Check if text is a 3-line haiku with 5-7-5 syllable structure
+    lines = [l.strip() for l in text.strip().split('\n') if l.strip()]
+    if len(lines) != 3:
+        return False
+    syllable_pattern = [5, 7, 5]
+    for i, line in enumerate(lines):
+        syl = count_syllables(line)
+        # Allow +/- 1 syllable for robustness
+        if abs(syl - syllable_pattern[i]) > 1:
+            return False
+    return True
+
+def clean_haiku(text):
+    # Remove extra whitespace, ensure 3 lines, strip each line
+    lines = [l.strip() for l in text.strip().split('\n') if l.strip()]
+    if len(lines) == 3:
+        return '\n'.join(lines)
+    # Try to split by comma if only one line
+    if len(lines) == 1 and ',' in lines[0]:
+        parts = [p.strip() for p in lines[0].split(',')]
+        if len(parts) == 3:
+            return '\n'.join(parts)
+    # Otherwise, return as is
+    return text.strip()
+
+def is_noisy(text):
+    # Remove if empty, not a string, or contains too many non-printable chars
+    if not isinstance(text, str) or not text.strip():
+        return True
+    if sum(1 for c in text if not c.isprintable()) > 5:
+        return True
+    if len(text) > 300:
+        return True
+    return False
+
+def is_near_haiku(text):
+    # Looks like a haiku but not quite (wrong syllable count, but 3 lines)
+    lines = [l.strip() for l in text.strip().split('\n') if l.strip()]
+    return len(lines) == 3
+
 def main():
     print("Starting data preparation process...")
     start_time = time.time()
@@ -67,8 +123,22 @@ def main():
         batch_queries = [clean_query(ex['question']) for ex in batch_examples]
         batch_positives = [ex['chosen'] for ex in batch_examples]
 
+        # Clean and filter positives
+        cleaned_positives = []
+        cleaned_queries = []
+        for q, pos in zip(batch_queries, batch_positives):
+            pos_clean = clean_haiku(pos)
+            if is_noisy(pos_clean):
+                continue
+            if not is_haiku(pos_clean):
+                continue
+            cleaned_positives.append(pos_clean)
+            cleaned_queries.append(q)
+        if not cleaned_positives:
+            continue
+
         # Tokenize batch
-        inputs = tkz(batch_queries, return_tensors='pt', padding=True, truncation=True)
+        inputs = tkz(cleaned_queries, return_tensors='pt', padding=True, truncation=True)
         input_ids = inputs.input_ids.to(device)
         attention_mask = inputs.attention_mask.to(device)
 
@@ -85,11 +155,19 @@ def main():
                 do_sample=True,
                 top_p=0.95,
             )
-        # Decode each output
-        for i in range(batch_end - batch_start):
+        for i in range(len(cleaned_positives)):
             neg = tkz.decode(neg_outputs[i][inputs.input_ids.shape[1]:], skip_special_tokens=True)
-            data['query'].append(batch_queries[i])
-            data['positive'].append(batch_positives[i])
+            # Clean and filter negatives
+            if is_noisy(neg):
+                continue
+            if is_haiku(neg):
+                continue  # Don't allow accidental haikus
+            if neg.strip() == cleaned_positives[i].strip():
+                continue
+            if is_near_haiku(neg):
+                continue  # Don't allow near-miss haikus
+            data['query'].append(cleaned_queries[i])
+            data['positive'].append(cleaned_positives[i])
             data['negative'].append(neg)
 
         # Save periodically
