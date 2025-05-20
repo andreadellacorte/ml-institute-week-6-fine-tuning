@@ -2,7 +2,8 @@ import torch
 import transformers
 import time
 import re
-from datasets import load_dataset
+import csv
+from torch.utils.data import Dataset, DataLoader
 import random
 from datetime import datetime
 from pathlib import Path
@@ -52,9 +53,30 @@ print(f"Using device: {device}")
 optm = torch.optim.Adam(plc.parameters(), lr=1e-4)
 beta = 0.1
 
-# Load haiku dataset
-dataset = load_dataset("davanstrien/haiku_dpo", split="train")
-print(f"Loaded {len(dataset)} examples from haiku_dpo dataset")
+# Custom Dataset for Haiku DPO CSV
+data_csv_path = Path('data/processed/haiku_dpo/haiku_dpo_processed.csv')
+
+class HaikuDPODataset(Dataset):
+    def __init__(self, csv_path):
+        self.samples = []
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                # Expecting columns: question, chosen
+                if row.get('query') and row.get('positive'):
+                    self.samples.append({
+                        'query': row['query'],
+                        'positive': row['positive'],
+                        'negative': row['negative']  # Optional negative example
+                    })
+    def __len__(self):
+        return len(self.samples)
+    def __getitem__(self, idx):
+        return self.samples[idx]
+
+dataset = HaikuDPODataset(data_csv_path)
+print(f"Loaded {len(dataset)} examples from {data_csv_path}")
+
 print(f"Setup completed in {time.time() - start_time:.2f}s")
 
 def clean_query(query):
@@ -150,40 +172,11 @@ for epoch in range(num_epochs):
         
         for step, idx in enumerate(batch_indices):
             example = dataset[idx]
-            query = clean_query(example['question'])
-            
-            # Use the chosen response as positive
-            positive = example['chosen']
-            
-            # Generate a negative response using the reference model
-            with torch.no_grad():
-                # Make sure we have a non-empty query
-                if not query.strip():
-                    query = "Write about something"
-                
-                # Tokenize and ensure we have proper input format
-                input_text = query.strip()
-                inputs = tkz(input_text, return_tensors='pt', padding=True)
-                input_ids = inputs.input_ids.to(device)
-                attention_mask = inputs.attention_mask.to(device)
-                
-                # Check if we have valid input
-                if input_ids.size(1) > 0:
-                    neg_output = ref.generate(
-                        input_ids, 
-                        attention_mask=attention_mask,
-                        max_length=50, 
-                        min_length=10,  # Ensure we generate something
-                        num_return_sequences=1,
-                        pad_token_id=tkz.eos_token_id,
-                        temperature=0.7,
-                        do_sample=True,
-                        top_p=0.95,
-                    )
-                    negative = tkz.decode(neg_output[0][input_ids.size(1):], skip_special_tokens=True)
-                else:
-                    # Fallback for empty inputs
-                    negative = "This is a generic response that's not too long."
+            query = clean_query(example['query'])
+        
+            positive = example['positive']
+
+            negative = example['negative']
             
             # Train on this example
             loss = train_step(query, positive, negative)
