@@ -1,4 +1,5 @@
 import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import torch
 import transformers
 import time
@@ -28,15 +29,15 @@ print(f"Loading models and datasets...")
 start_time = time.time()
 
 batch_size_per_model = {
-    'gpt2': 512,
-    'gpt2-medium': 256,
-    'gpt2-large': 512,
+    'gpt2': 64,
+    'gpt2-medium': 32,
+    'gpt2-large': 16,
     'gpt2-xl': 4,
 }
 
 # Load models
 # Use a larger model for better haiku generation
-MODEL_NAME = 'gpt2-large'  # You can change to mistralai/Mistral-7B-v0.1 or another large model if desired
+MODEL_NAME = 'gpt2-medium'  # You can change to mistralai/Mistral-7B-v0.1 or another large model if desired
 print(f"Loading model: {MODEL_NAME}")
 tkz = transformers.AutoTokenizer.from_pretrained(MODEL_NAME)
 tkz.pad_token = tkz.eos_token
@@ -166,12 +167,14 @@ def generate_haiku(prompt, max_length=50):
     return response
 
 def is_haiku(text):
-    # Checks if the text is a 3-line haiku with 5-7-5 syllable structure
-    lines = [l.strip() for l in text.strip().split('\n') if l.strip()]
-    if len(lines) != 3:
-        return False
-    syllables = [textstat.syllable_count(line) for line in lines]
-    return syllables == [5, 7, 5]
+    # Treats both newlines and commas as line breaks for haiku detection
+    # Checks if the text is a 3-line haiku with 5-7-5 syllable structure and returns (is_haiku, syllable_counts)
+    # Split on newlines or commas
+    lines = [l.strip() for l in re.split(r'[\n,]', text.strip()) if l.strip()]
+    if len(lines) < 3:
+        return False, [textstat.syllable_count(line) for line in lines] + [0]*(3-len(lines))
+    syllables = [textstat.syllable_count(line) for line in lines[:3]]
+    return syllables == [5, 7, 5], syllables
 
 # Training function
 def train_step(batch):
@@ -213,15 +216,16 @@ for epoch in range(num_epochs):
         epoch_loss += loss.item() * len(batch['query'])
 
         # Run evaluation every 250 batches
-        if (batch_idx + 1) % 250 == 0:
+        if (batch_idx + 1) % 50 == 0:
             print(f"\n[Eval] Running test prompt evaluation at batch {batch_idx+1}...")
             results = []
             haiku_count = 0
             for prompt in test_prompts:
                 response = generate_haiku(prompt)
-                haiku = is_haiku(response)
-                results.append(f"Prompt: {prompt}\nResponse:\n{response}\nIs haiku: {haiku}\n")
-                if haiku:
+                is_hk, sylls = is_haiku(response)
+                results.append(f"Prompt: {prompt}\nResponse:\n{response}\nSyllables: {sylls}\nIs haiku: {is_hk}\n")
+                print(f"Prompt: {prompt}\nResponse:\n{response}\nSyllables: {sylls}\nIs haiku: {is_hk}\n")
+                if is_hk:
                     haiku_count += 1
             print(f"[Eval] {haiku_count}/{len(test_prompts)} outputs are valid haikus.")
             eval_file = output_dir / f"test_prompt_eval_batch{batch_idx+1}.txt"
@@ -249,9 +253,10 @@ results = []
 haiku_count = 0
 for prompt in test_prompts:
     response = generate_haiku(prompt)
-    haiku = is_haiku(response)
-    results.append(f"Prompt: {prompt}\nResponse:\n{response}\nIs haiku: {haiku}\n")
-    if haiku:
+    is_hk, sylls = is_haiku(response)
+    results.append(f"Prompt: {prompt}\nResponse:\n{response}\nSyllables: {sylls}\nIs haiku: {is_hk}\n")
+    print(f"Prompt: {prompt}\nResponse:\n{response}\nSyllables: {sylls}\nIs haiku: {is_hk}\n")
+    if is_hk:
         haiku_count += 1
 print(f"\n{haiku_count}/{len(test_prompts)} outputs are valid haikus.")
 output_file = output_dir / "test_prompt_eval.txt"
@@ -266,11 +271,12 @@ haiku_count = 0
 for prompt in test_prompts:
     print(f"\nPrompt: {prompt}")
     response = generate_haiku(prompt)
-    haiku = is_haiku(response)
+    is_hk, sylls = is_haiku(response)
     print(f"Response:\n{response}")
-    print(f"Is haiku: {haiku}")
-    results.append(f"Prompt: {prompt}\nResponse:\n{response}\nIs haiku: {haiku}\n")
-    if haiku:
+    print(f"Syllables: {sylls}")
+    print(f"Is haiku: {is_hk}")
+    results.append(f"Prompt: {prompt}\nResponse:\n{response}\nSyllables: {sylls}\nIs haiku: {is_hk}\n")
+    if is_hk:
         haiku_count += 1
 print(f"\n{haiku_count}/{len(test_prompts)} outputs are valid haikus.")
 # Save evaluation logs
