@@ -8,6 +8,7 @@ from datasets import load_dataset
 from pathlib import Path
 import tqdm
 import random
+import string
 
 # Import from the parent package directly
 from config import PROCESSED_DATA_DIR
@@ -26,10 +27,11 @@ def clean_query(query):
     return cleaned.strip()
 
 def preprocess_haiku(text):
-    # Remove all punctuation
-    text = re.sub(r'[\p{P}\n]+', ' ', text, flags=re.UNICODE)
-    # Remove all newlines (already replaced by space above)
-    # Split on what used to be newlines or commas (now just spaces)
+    # Remove all punctuation (ASCII)
+    text = text.translate(str.maketrans('', '', string.punctuation))
+    # Remove all newlines
+    text = text.replace('\n', ' ')
+    # Split on what used to be newlines or periods (now just spaces)
     lines = [l.strip() for l in text.split('.') if l.strip()]
     # Join with '/'
     return ' / '.join(lines)
