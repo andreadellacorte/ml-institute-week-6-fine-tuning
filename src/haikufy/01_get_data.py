@@ -40,6 +40,7 @@ def main():
     print("Loading models for negative example generation...")
     tkz = transformers.AutoTokenizer.from_pretrained('gpt2')
     tkz.pad_token = tkz.eos_token
+    tkz.padding_side = 'left'
     model = transformers.AutoModelForCausalLM.from_pretrained('gpt2')
     
     # Check if GPU is available and move model
@@ -55,24 +56,23 @@ def main():
         'negative': []
     }
     
-    # Process each example
-    print("Processing examples and generating negative responses...")
-    for idx, example in enumerate(tqdm.tqdm(dataset, desc="Processing examples")):
-        # Clean the query
-        query = clean_query(example['question'])
-        
-        # Get positive example from chosen response
-        positive = example['chosen']
-        
-        # Generate negative response
+    # Process each example in batches for negative generation
+    batch_size = 128  # You can adjust this for your GPU/CPU
+    num_examples = len(dataset)
+    for batch_start in tqdm.tqdm(range(0, num_examples, batch_size), desc="Processing examples"): 
+        batch_end = min(batch_start + batch_size, num_examples)
+        batch_examples = [dataset[i] for i in range(batch_start, batch_end)]
+        batch_queries = [clean_query(ex['question']) for ex in batch_examples]
+        batch_positives = [ex['chosen'] for ex in batch_examples]
+
+        # Tokenize batch
+        inputs = tkz(batch_queries, return_tensors='pt', padding=True, truncation=True)
+        input_ids = inputs.input_ids.to(device)
+        attention_mask = inputs.attention_mask.to(device)
+
+        # Generate negatives in batch
         with torch.no_grad():
-            # Tokenize query
-            inputs = tkz(query, return_tensors='pt', padding=True)
-            input_ids = inputs.input_ids.to(device)
-            attention_mask = inputs.attention_mask.to(device)
-            
-            # Generate response
-            neg_output = model.generate(
+            neg_outputs = model.generate(
                 input_ids,
                 attention_mask=attention_mask,
                 max_length=50,
@@ -83,16 +83,15 @@ def main():
                 do_sample=True,
                 top_p=0.95,
             )
-            negative = tkz.decode(neg_output[0][input_ids.shape[1]:], skip_special_tokens=True)
-            
-        # Store data
-        data['query'].append(query)
-        data['positive'].append(positive)
-        data['negative'].append(negative)
-        
+        # Decode each output
+        for i in range(batch_end - batch_start):
+            neg = tkz.decode(neg_outputs[i][inputs.input_ids.shape[1]:], skip_special_tokens=True)
+            data['query'].append(batch_queries[i])
+            data['positive'].append(batch_positives[i])
+            data['negative'].append(neg)
+
         # Save periodically
-        if (idx + 1) % 100 == 0 or idx == len(dataset) - 1:
-            # Create DataFrame and save to CSV
+        if (batch_end) % 100 == 0 or batch_end == num_examples:
             df = pd.DataFrame(data)
             csv_path = output_dir / 'haiku_dpo_processed.csv'
             df.to_csv(csv_path, index=False)

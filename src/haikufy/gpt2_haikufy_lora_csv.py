@@ -145,7 +145,7 @@ def train_step(qry, pos, neg):
 
 # Train the model
 print("Starting training...")
-num_epochs = 5
+num_epochs = 1
 
 for epoch in range(num_epochs):
     epoch_start = time.time()
@@ -176,7 +176,7 @@ for epoch in range(num_epochs):
 
 # Save the trained model
 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-output_dir = CHECKPOINTS_DATA_DIR / f"haikufy_lora_model_{timestamp}"
+output_dir = CHECKPOINTS_DATA_DIR / f"gpt2_haikufy_lora_model_{timestamp}"
 output_dir.mkdir(parents=True, exist_ok=True)
 
 # Save the adapter weights separately - much smaller than full model

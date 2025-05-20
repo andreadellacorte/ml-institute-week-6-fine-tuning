@@ -6,7 +6,6 @@ from datasets import load_dataset
 import random
 from datetime import datetime
 from pathlib import Path
-from peft import get_peft_model, LoraConfig, TaskType
 
 # Import from the parent package directly
 from config import CHECKPOINTS_DATA_DIR
@@ -26,21 +25,6 @@ ref.eval()
 for p in ref.parameters():
     p.requires_grad_(False)
 
-# Configure LoRA for the policy model
-lora_config = LoraConfig(
-    task_type=TaskType.CAUSAL_LM,
-    r=8,  # rank of the LoRA adapter
-    lora_alpha=16,  # scaling factor
-    lora_dropout=0.1,
-    target_modules=["c_attn", "c_proj"],  # GPT-2 specific attention modules
-    fan_in_fan_out=True,  # Set to True for Conv1D layers in GPT-2
-    bias="none"
-)
-
-# Apply LoRA to the policy model
-plc = get_peft_model(plc, lora_config)
-plc.print_trainable_parameters()  # This will show the parameter reduction
-
 # Check if GPU is available
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 plc.to(device)
@@ -48,8 +32,7 @@ ref.to(device)
 print(f"Using device: {device}")
 
 # Setup optimizer
-# We only optimize the LoRA parameters now
-optm = torch.optim.Adam(plc.parameters(), lr=1e-4)
+optm = torch.optim.Adam(plc.parameters(), lr=1e-5)
 beta = 0.1
 
 # Load haiku dataset
@@ -126,13 +109,9 @@ def generate_haiku(prompt, max_length=50):
 
 # Train the model
 print("Starting training...")
-num_epochs = 5
-batch_size = 512
-total_examples = len(dataset)
-
-# Add gradient accumulation for more stability
-gradient_accumulation_steps = 4
-effective_batch_size = batch_size * gradient_accumulation_steps
+num_epochs = 3
+batch_size = 8
+total_examples = min(100, len(dataset))  # Limit to 100 examples for faster training
 
 for epoch in range(num_epochs):
     epoch_start = time.time()
@@ -145,10 +124,7 @@ for epoch in range(num_epochs):
         batch_indices = indices[i:i+batch_size]
         batch_loss = 0
         
-        # Reset gradients at the beginning of each effective batch
-        optm.zero_grad()
-        
-        for step, idx in enumerate(batch_indices):
+        for idx in batch_indices:
             example = dataset[idx]
             query = clean_query(example['question'])
             
@@ -159,7 +135,7 @@ for epoch in range(num_epochs):
             with torch.no_grad():
                 # Make sure we have a non-empty query
                 if not query.strip():
-                    query = "Write about something"
+                    query = "Write a response"
                 
                 # Tokenize and ensure we have proper input format
                 input_text = query.strip()
@@ -189,15 +165,10 @@ for epoch in range(num_epochs):
             loss = train_step(query, positive, negative)
             batch_loss += loss
             
-            # Only step the optimizer after accumulating gradients
-            if (step + 1) % gradient_accumulation_steps == 0 or step == len(batch_indices) - 1:
-                optm.step()
-                optm.zero_grad()
-            
         avg_batch_loss = batch_loss / len(batch_indices)
         epoch_loss += batch_loss
         
-        if i % 10 == 0 or i + batch_size >= total_examples:
+        if i % 50 == 0 or i + batch_size >= total_examples:
             print(f"Epoch {epoch+1}/{num_epochs}, Batch {i//batch_size}, Loss: {avg_batch_loss:.4f}")
     
     avg_epoch_loss = epoch_loss / total_examples
@@ -206,13 +177,10 @@ for epoch in range(num_epochs):
 
 # Save the trained model
 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-output_dir = CHECKPOINTS_DATA_DIR / f"haikufy_lora_model_{timestamp}"
-output_dir.mkdir(parents=True, exist_ok=True)
-
-# Save the adapter weights separately - much smaller than full model
+output_dir = CHECKPOINTS_DATA_DIR / f"haikufy_model_{timestamp}"
 plc.save_pretrained(output_dir)
 tkz.save_pretrained(output_dir)
-print(f"LoRA model saved to {output_dir}")
+print(f"Model saved to {output_dir}")
 
 # Test the model with some prompts
 test_prompts = [
