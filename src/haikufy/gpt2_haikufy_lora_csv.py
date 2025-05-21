@@ -76,7 +76,7 @@ optm = torch.optim.Adam(plc.parameters(), lr=1e-4)
 beta = 0.1
 
 # Custom Dataset for Haiku DPO CSV
-data_csv_path = Path('data/processed/haiku_dpo/haiku_dpo_processed.csv')
+data_csv_path = Path('data/processed/haiku_dpo_v5/haiku.csv')
 
 class HaikuDPODataset(Dataset):
     def __init__(self, csv_path):

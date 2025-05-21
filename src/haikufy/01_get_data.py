@@ -95,13 +95,13 @@ def main():
         # Save periodically
         if (batch_end) % 100 == 0 or batch_end == num_examples:
             df = pd.DataFrame(data)
-            csv_path = output_dir / 'haiku_dpo_processed.csv'
+            csv_path = output_dir / 'haikus.csv'
             df.to_csv(csv_path, index=False)
             print(f"Saved {len(data['query'])} examples to {csv_path}")
     
     # Create final DataFrame and save to CSV
     df = pd.DataFrame(data)
-    csv_path = output_dir / 'haiku_dpo_processed.csv'
+    csv_path = output_dir / 'haikus.csv'
     df.to_csv(csv_path, index=False)
     
     # Also save a smaller subset for quick experiments
@@ -113,7 +113,7 @@ def main():
         'negative': [data['negative'][i] for i in sample_indices]
     }
     sample_df = pd.DataFrame(sample_data)
-    sample_csv_path = output_dir / 'haiku_dpo_processed_sample.csv'
+    sample_csv_path = output_dir / 'haikus_sample.csv'
     sample_df.to_csv(sample_csv_path, index=False)
     
     print(f"Processing completed in {time.time() - start_time:.2f}s")
