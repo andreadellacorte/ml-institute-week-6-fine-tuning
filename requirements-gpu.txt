@@ -10,12 +10,14 @@ ipython
 ipywidgets
 isort
 jupyterlab
+librosa
 loguru
 matplotlib
 notebook
 nltk
 numpy<2
 pandas
+peft>= 0.6.0
 pillow
 pip
 pytest
@@ -26,6 +28,8 @@ sentencepiece>=0.1.99
 spacy==3.3.1 
 streamlit
 sortedcontainers
+soundfile
+textstat
 torch==2.6.0
 torchvision
 transformers

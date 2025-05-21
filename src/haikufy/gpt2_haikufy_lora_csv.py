@@ -15,7 +15,7 @@ import tqdm
 import textstat
 
 # Import from the parent package directly
-from config import CHECKPOINTS_DATA_DIR
+from src.config import CHECKPOINTS_DATA_DIR
 
 # Set random seeds for reproducibility
 seed = 42
@@ -76,7 +76,7 @@ optm = torch.optim.Adam(plc.parameters(), lr=1e-4)
 beta = 0.1
 
 # Custom Dataset for Haiku DPO CSV
-data_csv_path = Path('data/processed/haiku_dpo_v5/haiku.csv')
+data_csv_path = Path('data/processed/haiku_dpo_v5/haikus.csv')
 
 class HaikuDPODataset(Dataset):
     def __init__(self, csv_path):
@@ -133,18 +133,37 @@ def sum_logp(model, ids, msk, lbl):
 output_dir = CHECKPOINTS_DATA_DIR / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{MODEL_NAME}_haikufy_lora_model"
 output_dir.mkdir(parents=True, exist_ok=True)
 
+topics = [
+    "nature",
+    "love",
+    "life",
+    "death",
+    "seasons",
+    "time",
+    "dreams",
+    "memories",
+    "machine learning"
+]
+
+def generate_query(topic):
+    forms = [
+        lambda t: f"Describe {t} in a few words.",
+        lambda t: f"What is the essence of {t}?",
+        lambda t: f"A conversation about {t}.",
+        lambda t: f"Give instructions for {t}.",
+        lambda t: f"Express feelings about {t}.",
+        lambda t: f"Write a reply about {t}.",
+        lambda t: f"A short dialogue on {t}.",
+        lambda t: f"Summarize {t} in a sentence.",
+        lambda t: f"List some facts about {t}.",
+        lambda t: f"A memory involving {t}."
+    ]
+
+    form = random.choice(forms)
+    return form(topic)
+
 test_prompts = [
-    "Write about nature",
-    "Describe the mountains",
-    "Tell me about the ocean",
-    "Reflect on the changing seasons",
-    "Express feelings about love",
-    "Tell me about work",
-    "Write about the stars",
-    "Describe a sunset",
-    "Write about the moon",
-    "Express feelings about friendship",
-    "Write about the city",
+    generate_query(topic) for topic in topics
 ]
 
 def generate_haiku(prompt, max_length=50):
@@ -166,15 +185,7 @@ def generate_haiku(prompt, max_length=50):
     response = tkz.decode(output[0][input_ids.shape[1]:], skip_special_tokens=True)
     return response
 
-def is_haiku(text):
-    # Treats both newlines and commas as line breaks for haiku detection
-    # Checks if the text is a 3-line haiku with 5-7-5 syllable structure and returns (is_haiku, syllable_counts)
-    # Split on newlines or commas
-    lines = [l.strip() for l in re.split(r'[\n,]', text.strip()) if l.strip()]
-    if len(lines) < 3:
-        return False, [textstat.syllable_count(line) for line in lines] + [0]*(3-len(lines))
-    syllables = [textstat.syllable_count(line) for line in lines[:3]]
-    return syllables == [5, 7, 5], syllables
+
 
 # Training function
 def train_step(batch):
@@ -200,6 +211,17 @@ def train_step(batch):
 print("Starting training...")
 num_epochs = 5
 
+# prints debug metrics for text
+# lines, syllables per line, and total syllables 
+def analyze_text(text):
+    lines = text.split('\n')
+    syllables_per_line = [textstat.syllable_count(line) for line in lines]
+    total_syllables = sum(syllables_per_line)
+    is_haiku = len(lines) == 3 and syllables_per_line == [5, 7, 5]
+    return is_haiku, lines, syllables_per_line, total_syllables
+
+total_haikus = 0
+
 for epoch in range(num_epochs):
     epoch_start = time.time()
     epoch_loss = 0
@@ -222,10 +244,11 @@ for epoch in range(num_epochs):
             haiku_count = 0
             for prompt in test_prompts:
                 response = generate_haiku(prompt)
-                is_hk, sylls = is_haiku(response)
-                results.append(f"Prompt: {prompt}\nResponse:\n{response}\nSyllables: {sylls}\nIs haiku: {is_hk}\n")
-                print(f"Prompt: {prompt}\nResponse:\n{response}\nSyllables: {sylls}\nIs haiku: {is_hk}\n")
-                if is_hk:
+                is_haiku, lines, syllables_per_line, total_syllables = analyze_text(response)
+                results.append(f"Prompt: {prompt}\nResponse:\n{response}\nSyllables per line: {syllables_per_line}\nTotal syllables: {total_syllables}\nIs haiku: {is_haiku}\n")
+                print(f"Prompt: {prompt}\nResponse:\n{response}\nSyllables per line: {syllables_per_line}\nTotal syllables: {total_syllables}\nIs haiku: {is_haiku}\n")
+                if is_haiku:
+                    total_haikus += 1
                     haiku_count += 1
             print(f"[Eval] {haiku_count}/{len(test_prompts)} outputs are valid haikus.")
             eval_file = output_dir / f"test_prompt_eval_batch{batch_idx+1}.txt"
@@ -233,6 +256,7 @@ for epoch in range(num_epochs):
                 f.write("\n".join(results))
                 f.write(f"\n{haiku_count}/{len(test_prompts)} outputs are valid haikus.\n")
             print(f"[Eval] Test prompt evaluation logs saved to {eval_file}")
+            print(f"[Eval] {total_haikus}/{len(test_prompts)} outputs are valid haikus.")
 
     avg_epoch_loss = epoch_loss / len(dataset)
     epoch_time = time.time() - epoch_start
@@ -253,35 +277,16 @@ results = []
 haiku_count = 0
 for prompt in test_prompts:
     response = generate_haiku(prompt)
-    is_hk, sylls = is_haiku(response)
-    results.append(f"Prompt: {prompt}\nResponse:\n{response}\nSyllables: {sylls}\nIs haiku: {is_hk}\n")
-    print(f"Prompt: {prompt}\nResponse:\n{response}\nSyllables: {sylls}\nIs haiku: {is_hk}\n")
-    if is_hk:
+    is_haiku, lines, syllables_per_line, total_syllables = analyze_text(response)
+    results.append(f"Prompt: {prompt}\nResponse:\n{response}\nSyllables per line: {syllables_per_line}\nTotal syllables: {total_syllables}\nIs haiku: {is_haiku}\n")
+    print(f"Prompt: {prompt}\nResponse:\n{response}\nSyllables per line: {syllables_per_line}\nTotal syllables: {total_syllables}\nIs haiku: {is_haiku}\n")
+    if is_haiku:
         haiku_count += 1
+        total_haikus += 1
 print(f"\n{haiku_count}/{len(test_prompts)} outputs are valid haikus.")
 output_file = output_dir / "test_prompt_eval.txt"
 with open(output_file, "w", encoding="utf-8") as f:
     f.write("\n".join(results))
     f.write(f"\n{haiku_count}/{len(test_prompts)} outputs are valid haikus.\n")
-print(f"Test prompt evaluation logs saved to {output_file}")
-
-print("\nTesting the model with prompts:")
-results = []
-haiku_count = 0
-for prompt in test_prompts:
-    print(f"\nPrompt: {prompt}")
-    response = generate_haiku(prompt)
-    is_hk, sylls = is_haiku(response)
-    print(f"Response:\n{response}")
-    print(f"Syllables: {sylls}")
-    print(f"Is haiku: {is_hk}")
-    results.append(f"Prompt: {prompt}\nResponse:\n{response}\nSyllables: {sylls}\nIs haiku: {is_hk}\n")
-    if is_hk:
-        haiku_count += 1
-print(f"\n{haiku_count}/{len(test_prompts)} outputs are valid haikus.")
-# Save evaluation logs
-output_file = output_dir / "test_prompt_eval.txt"
-with open(output_file, "w", encoding="utf-8") as f:
-    f.write("\n".join(results))
-    f.write(f"\n{haiku_count}/{len(test_prompts)} outputs are valid haikus.\n")
+    print(f"Final evaluation completed. {total_haikus}/{len(test_prompts)} outputs are valid haikus.")
 print(f"Test prompt evaluation logs saved to {output_file}")
