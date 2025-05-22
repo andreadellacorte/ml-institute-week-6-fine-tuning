@@ -5,6 +5,8 @@ import pandas as pd
 from pathlib import Path
 import datasets
 import random
+import string
+import re
 
 HAIKU_SYLLABLES = 17
 
@@ -16,16 +18,10 @@ encode_newlines = lambda text: text.replace('\n', r'\n')
 
 def generate_query(topic):
     forms = [
-        lambda t: f"Describe {t} in a few words.",
-        lambda t: f"What is the essence of {t}?",
-        lambda t: f"A conversation about {t}.",
-        lambda t: f"Give instructions for {t}.",
-        lambda t: f"Express feelings about {t}.",
-        lambda t: f"Write a reply about {t}.",
-        lambda t: f"A short dialogue on {t}.",
-        lambda t: f"Summarize {t} in a sentence.",
-        lambda t: f"List some facts about {t}.",
-        lambda t: f"A memory involving {t}."
+        #lambda t: f"Describe {t} in a few words.",
+        #lambda t: f"Express feelings about {t}.",
+        lambda t: f"A memory involving {t}: "
+        #lambda t: f"{t} is... ",
     ]
 
     form = random.choice(forms)
@@ -34,7 +30,7 @@ def generate_query(topic):
 def main():
     print("Starting haiku dataset generation (statworx/haiku positives)...")
     start_time = time.time()
-    output_dir = Path('data/processed/haiku_dpo_v5')
+    output_dir = Path('data/processed/statworx_haiku')
     output_dir.mkdir(parents=True, exist_ok=True)
     csv_path = output_dir / 'haikus.csv'
 
@@ -44,7 +40,9 @@ def main():
     keywords = [haiku_ds[idx].get('keywords', '') for idx in range(num_samples)]
 
     # Load model
-    MODEL = "mistralai/Mistral-7B-Instruct-v0.3"
+
+    MODEL = "gpt2-large"
+
     tkz = transformers.AutoTokenizer.from_pretrained(MODEL)
     tkz.pad_token = tkz.eos_token if hasattr(tkz, 'eos_token') else tkz.pad_token
     tkz.padding_side = 'left'
@@ -55,7 +53,10 @@ def main():
 
     # Prompts for negatives
     prompts_neg1 = [f"Write a paragraph (>25 syllables) about: {k}" for k in keywords]
-    prompts_neg2 = [f"Write a 3-line poem about: {k} with {HAIKU_SYLLABLES-2} to {HAIKU_SYLLABLES-2} syllables, but not {HAIKU_SYLLABLES}." for k in keywords]
+    prompts_neg2 = [
+        f"Write a 3-line poem about: {k} with {random.choice([15, 16, 18, 19])} syllables"
+        for k in keywords
+    ]
 
     # Load existing indices if file exists
     existing_indices = set()
@@ -65,6 +66,23 @@ def main():
             existing_indices = set(existing_df['index'].dropna().astype(int).tolist())
         except Exception:
             pass
+    
+    # Syllable counting function
+    def count_syllables(text):
+        text = text.lower()
+        text = re.sub(r'[^a-z\s]', '', text)
+        words = text.split()
+        count = 0
+        for word in words:
+            word = word.strip()
+            if not word:
+                continue
+            # Simple syllable estimation
+            syllables = len(re.findall(r'[aeiouy]+', word))
+            if word.endswith('e'):
+                syllables = max(1, syllables - 1)
+            count += max(1, syllables)
+        return count
 
     def batch_generate(prompts, max_length):
         all_outputs = []
@@ -90,7 +108,7 @@ def main():
                 all_outputs.append(gen)
         return all_outputs
 
-    batch_size = 32
+    batch_size = 64
     file_exists = csv_path.exists()
     for batch_start in range(0, num_samples, batch_size):
         batch_end = min(batch_start + batch_size, num_samples)
@@ -114,13 +132,26 @@ def main():
         for idx, keyword, prose, near_miss in zip(filtered_indices, filtered_keywords, gens_neg1, gens_neg2):
             query = generate_query(keyword)
             haiku = haiku_ds[idx]['text']
-            # Clean up haiku (ensure 3 lines)
-            lines = [l.strip() for l in haiku.replace('/', '\n').split('\n') if l.strip()]
-            haiku = '\n'.join(lines[:3]) if len(lines) >= 3 else haiku
+            # Replace '/' with '\n' for line breaks
+            haiku = haiku.replace('/', '\n')
+            # Only remove .,?! from haiku
+            haiku = haiku.translate(str.maketrans('', '', '.?,!'))
+            # Ensure lines are separated by '\n' (not '/')
+            lines = [l.strip() for l in haiku.split('\n') if l.strip()]
+            haiku = '\n'.join(lines)
             prose = prose.replace('\n', ' ')
+            # Ensure near_miss_haiku has exactly 3 lines (2 '\n'), with line breaks in between, not at the end
             lines2 = [l.strip() for l in near_miss.split('\n') if l.strip()]
-            near_miss_haiku = '\n'.join(lines2[:3]) if len(lines2) >= 3 else near_miss
-            q = encode_newlines(query)
+            if len(lines2) < 3:
+                lines2 += [''] * (3 - len(lines2))
+            near_miss_haiku = '\n'.join(lines2[:3])  # This guarantees two '\n' between three lines, none at the end
+
+            if count_syllables(near_miss_haiku) == HAIKU_SYLLABLES:
+                print(f"Generated near_miss_haiku {idx} has exactly {HAIKU_SYLLABLES} syllables:\n{near_miss_haiku}")
+                continue
+            
+            # Add a newline to the end of the query for training data consistency
+            q = encode_newlines(query.rstrip() + "\n")
             p = encode_newlines(haiku)
             n1 = encode_newlines(prose)
             n2 = encode_newlines(near_miss_haiku)
