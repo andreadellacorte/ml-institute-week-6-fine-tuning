@@ -1,6 +1,8 @@
 import os
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import torch
+torch.cuda.empty_cache()
+torch.cuda.ipc_collect()
 import transformers
 import time
 import re
@@ -34,13 +36,13 @@ start_time = time.time()
 batch_size_per_model = {
     'gpt2': 64,
     'gpt2-medium': 64,
-    'gpt2-large': 28,
+    'gpt2-large': 12,
     'gpt2-xl': 4,
 }
 
 # Load models
 # Use a larger model for better haiku generation
-MODEL_NAME = 'gpt2'  # You can change to mistralai/Mistral-7B-v0.1 or another large model if desired
+MODEL_NAME = 'gpt2-large'  # You can change to mistralai/Mistral-7B-v0.1 or another large model if desired
 print(f"Loading model: {MODEL_NAME}")
 tkz = transformers.AutoTokenizer.from_pretrained(MODEL_NAME)
 tkz.pad_token = tkz.eos_token
@@ -57,7 +59,7 @@ lora_config = LoraConfig(
     task_type=TaskType.CAUSAL_LM,
     r=8,  # rank of the LoRA adapter
     lora_alpha=16,  # scaling factor
-    lora_dropout=0.1,
+    lora_dropout=0.2,
     target_modules=["c_attn", "c_proj"],  # GPT-2 specific attention modules
     fan_in_fan_out=True,  # Set to True for Conv1D layers in GPT-2
     bias="none"
@@ -75,8 +77,13 @@ print(f"Using device: {device}")
 
 # Setup optimizer
 # We only optimize the LoRA parameters now
-optm = torch.optim.Adam(plc.parameters(), lr=5e-5)
+optm = torch.optim.Adam(
+    plc.parameters(),
+    lr=5e-6,  # Lower learning rate for stability
+)
 beta = 0.1
+
+torch.nn.utils.clip_grad_norm_(plc.parameters(), max_norm=1.0)
 
 # Custom Dataset for Haiku DPO CSV
 data_csv_path = Path('data/processed/haiku_dpo/haikus.csv')
@@ -245,7 +252,7 @@ for epoch in range(num_epochs):
         pbar.set_postfix({"loss": f"{loss.item():.4f}"})
 
         # Run evaluation every 50 batches
-        if (batch_idx + 1) % 18 == 0:
+        if (batch_idx + 1) % 344 == 0:
             print(f"\n[Eval] Running test prompt evaluation at batch {batch_idx+1}...")
             results = []
             haiku_count = 0

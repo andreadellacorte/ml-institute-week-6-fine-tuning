@@ -41,7 +41,7 @@ def main():
 
     # Load model
 
-    MODEL = "gpt2"
+    MODEL = "gpt2-large"
 
     tkz = transformers.AutoTokenizer.from_pretrained(MODEL)
     tkz.pad_token = tkz.eos_token if hasattr(tkz, 'eos_token') else tkz.pad_token
@@ -52,9 +52,9 @@ def main():
     model.eval()
 
     # Prompts for negatives
-    prompts_neg1 = [f"(>25 syllables) {generate_query(k)}" for k in keywords]
+    prompts_neg1 = [f"A memory involving {k} in more than 25 syllables:" for k in keywords]
     prompts_neg2 = [
-        f"(3-line poem of {random.choice([15, 16, 18, 19])} syllables) {generate_query(k)}"
+        f"A 3-line near-miss haiku of {random.choice([15, 16, 18, 19])} syllables about {k}:"
         for k in keywords
     ]
 
