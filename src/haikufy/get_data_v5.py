@@ -41,7 +41,7 @@ def main():
 
     # Load model
 
-    MODEL = "gpt2-large"
+    MODEL = "gpt2"
 
     tkz = transformers.AutoTokenizer.from_pretrained(MODEL)
     tkz.pad_token = tkz.eos_token if hasattr(tkz, 'eos_token') else tkz.pad_token
@@ -93,7 +93,7 @@ def main():
             input_ids = encodings.input_ids.to(device)
             attention_mask = encodings.attention_mask.to(device)
             with torch.no_grad():
-                output = model.generate(
+                outputs = model.generate(
                     input_ids,
                     attention_mask=attention_mask,
                     max_length=max_length,
@@ -107,6 +107,10 @@ def main():
                 )
             for j in range(len(batch_prompts)):
                 gen = tkz.decode(outputs[j][input_ids.shape[1]:], skip_special_tokens=True)
+                # Remove excessive or mismatched quotes from the generated text
+                gen = gen.strip('"')
+                gen = re.sub(r'^"+|"+$', '', gen)  # Remove leading/trailing quotes
+                gen = re.sub(r'^[`“”]+|[`“”]+$', '', gen)  # Remove other quote types
                 all_outputs.append(gen)
         return all_outputs
 

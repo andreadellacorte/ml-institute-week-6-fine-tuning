@@ -79,16 +79,17 @@ def main():
         # Generate negatives in batch
         with torch.no_grad():
             neg_outputs = model.generate(
-                input_ids,
-                attention_mask=attention_mask,
-                max_length=50,
-                min_length=10,
-                num_return_sequences=1,
-                pad_token_id=tkz.eos_token_id,
-                temperature=0.7,
-                do_sample=True,
-                top_p=0.95,
-            )
+                    input_ids,
+                    attention_mask=attention_mask,
+                    max_length=28,
+                    num_return_sequences=1,
+                    pad_token_id=tkz.eos_token_id,
+                    temperature=0.3,
+                    do_sample=True,
+                    top_p=0.9,
+                    no_repeat_ngram_size=3,
+                    eos_token_id=tkz.eos_token_id
+                )
         # For each example in batch
         for i, ex in enumerate(batch_examples):
             idx = batch_indices[i]
