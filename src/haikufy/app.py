@@ -36,7 +36,7 @@ def load_lora_model(checkpoint_dir, model_name):
     return model, tokenizer, device
 
 # Generation function
-def generate_haiku(model, tokenizer, device, prompt, max_length=100):
+def generate_haiku(model, tokenizer, device, prompt, max_length=28):
     inputs = tokenizer(prompt, return_tensors="pt", padding=True)
     input_ids = inputs.input_ids.to(device)
     attention_mask = inputs.attention_mask.to(device)
@@ -50,9 +50,34 @@ def generate_haiku(model, tokenizer, device, prompt, max_length=100):
             temperature=0.3,
             do_sample=True,
             top_p=0.9,
+            no_repeat_ngram_size=3,
+            eos_token_id=tokenizer.eos_token_id
         )
     response = tokenizer.decode(output[0][input_ids.shape[1]:], skip_special_tokens=True)
     return response
+
+def count_syllables(text):
+    import re
+    text = text.lower()
+    text = re.sub(r'[^a-z\s]', '', text)
+    words = text.split()
+    count = 0
+    for word in words:
+        word = word.strip()
+        if not word:
+            continue
+        syllables = len(re.findall(r'[aeiouy]+', word))
+        if word.endswith('e'):
+            syllables = max(1, syllables - 1)
+        count += max(1, syllables)
+    return count
+
+def haiku_metrics(text):
+    lines = [l for l in text.split('\n') if l.strip()]
+    num_lines = len(lines)
+    sylls = [count_syllables(l) for l in lines]
+    total_sylls = sum(sylls)
+    return num_lines, sylls, total_sylls
 
 # UI
 prompt = st.text_area("Enter a prompt for your haiku:", "A memory about nature")
@@ -79,12 +104,16 @@ if st.button("Generate Haiku"):
         lora_model, lora_tokenizer, lora_device = load_lora_model(lora_checkpoint, selected_model)
         base_haiku = generate_haiku(base_model, base_tokenizer, base_device, prompt)
         lora_haiku = generate_haiku(lora_model, lora_tokenizer, lora_device, prompt)
+        base_lines, base_sylls, base_total = haiku_metrics(base_haiku)
+        lora_lines, lora_sylls, lora_total = haiku_metrics(lora_haiku)
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("Base GPT-2:")
+        st.caption(f"Lines: {base_lines} | Syllables per line: {base_sylls} | Total syllables: {base_total}")
         st.markdown(f'<div style="white-space: pre-wrap; word-break: break-word; border: 2px solid #fff; border-radius: 8px; padding: 12px; background: #f9f9f9; color: #222; min-height: 100px;">{base_haiku}</div>', unsafe_allow_html=True)
     with col2:
         st.subheader("Fine-tuned GPT-2:")
+        st.caption(f"Lines: {lora_lines} | Syllables per line: {lora_sylls} | Total syllables: {lora_total}")
         st.markdown(f'<div style="white-space: pre-wrap; word-break: break-word; border: 2px solid #fff; border-radius: 8px; padding: 12px; background: #f9f9f9; color: #222; min-height: 100px;">{lora_haiku}</div>', unsafe_allow_html=True)
 
 st.markdown("---")
