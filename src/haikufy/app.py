@@ -36,7 +36,7 @@ def load_lora_model(checkpoint_dir, model_name):
     return model, tokenizer, device
 
 # Generation function
-def generate_haiku(model, tokenizer, device, prompt, max_length=28):
+def generate_haiku(model, tokenizer, device, prompt, max_length=32):
     inputs = tokenizer(prompt, return_tensors="pt", padding=True)
     input_ids = inputs.input_ids.to(device)
     attention_mask = inputs.attention_mask.to(device)
@@ -98,7 +98,7 @@ lora_checkpoint = st.selectbox(
     index=(st.session_state.lora_dirs.index(st.session_state.lora_checkpoint) if "lora_dirs" in st.session_state and st.session_state.lora_checkpoint in st.session_state.lora_dirs else 0)
 ) if st.session_state.get("lora_dirs") else st.text_input("LoRA checkpoint directory:", st.session_state.lora_checkpoint)
 
-if st.button("Generate Haiku"):
+if st.button("Generate"):
     with st.spinner("Loading models and generating haikus..."):
         base_model, base_tokenizer, base_device = load_base_model(selected_model)
         lora_model, lora_tokenizer, lora_device = load_lora_model(lora_checkpoint, selected_model)
