@@ -51,15 +51,15 @@ class UrbanSoundDataset(Dataset):
         self._cache_keys = []  # LRU tracking
         self.prefetch_factor = prefetch_factor
         self.fold = fold
-        # Load dataset from Hugging Face
-        self.dataset = load_dataset("danavery/urbansound8K", split="train")
+        # Load only a small subset if max_length is set, for speed
+        if max_length is not None:
+            self.dataset = load_dataset("danavery/urbansound8K", split=f"train[:{max_length}]")
+        else:
+            self.dataset = load_dataset("danavery/urbansound8K", split="train")
         # Add audio with resampling
         self.dataset = self.dataset.cast_column("audio", Audio(sampling_rate=sample_rate))
         # Only use the specified fold
         self.dataset = self.dataset.filter(lambda x: x["fold"] == fold)
-        # Limit dataset size if specified
-        if max_length is not None:
-            self.dataset = self.dataset.select(range(min(max_length, len(self.dataset))))
         # Create label to index mapping
         self.class_names = sorted(list(set(self.dataset["classID"])))
         self.class_to_idx = {cls_id: i for i, cls_id in enumerate(self.class_names)}
@@ -93,8 +93,7 @@ class UrbanSoundDataset(Dataset):
         aug_id = idx % items_per_original  # 0 means original, 1+ means augmented
         
         return original_idx, aug_id
-    
-    @functools.lru_cache(maxsize=128)  # Cache the last 128 items returned
+
     def __getitem__(self, idx):
         # Map to original index and augmentation ID
         original_idx, aug_id = self._get_original_index_and_aug_id(idx)

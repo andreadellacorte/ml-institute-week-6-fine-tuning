@@ -86,7 +86,7 @@ prompt = st.text_area("Enter a prompt for your haiku:", "A memory involving natu
 if "lora_checkpoint" not in st.session_state or "lora_model" not in st.session_state or st.session_state.lora_model != selected_model:
     checkpoints_root = Path("data/checkpoints")
     lora_dirs = sorted([
-        d for d in checkpoints_root.glob(f"*_" + selected_model + "_haikufy_lora_model") if d.is_dir()
+        d for d in checkpoints_root.glob(f"*_" + selected_model + "_haikufy_lora_model*") if d.is_dir()
     ])
     st.session_state.lora_dirs = [str(d) for d in lora_dirs]
     st.session_state.lora_checkpoint = st.session_state.lora_dirs[-1] if lora_dirs else ""

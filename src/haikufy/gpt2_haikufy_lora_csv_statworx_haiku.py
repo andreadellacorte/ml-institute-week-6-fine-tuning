@@ -40,7 +40,7 @@ batch_size_per_model = {
 
 # Load models
 # Use a larger model for better haiku generation
-MODEL_NAME = 'gpt2-large'  # You can change to mistralai/Mistral-7B-v0.1 or another large model if desired
+MODEL_NAME = 'gpt2'  # You can change to mistralai/Mistral-7B-v0.1 or another large model if desired
 print(f"Loading model: {MODEL_NAME}")
 tkz = transformers.AutoTokenizer.from_pretrained(MODEL_NAME)
 tkz.pad_token = tkz.eos_token

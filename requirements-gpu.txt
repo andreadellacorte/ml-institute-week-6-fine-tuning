@@ -32,6 +32,7 @@ textstat
 torch==2.6.0
 torchvision
 transformers
+trl
 tqdm
 typer
 wandb
