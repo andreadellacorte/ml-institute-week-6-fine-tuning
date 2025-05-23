@@ -9,6 +9,7 @@ from spectogrammify.dataset import UrbanSoundDataset
 from PIL import Image
 import pickle
 import numpy as np
+from datetime import datetime
 
 # Load MiniGPT-4 and processor
 minigpt4_model_id = "Vision-CAIR/MiniGPT-4"
@@ -35,9 +36,13 @@ def collate_fn(batch):
     inputs = processor(images=images, text=texts, return_tensors="pt", padding=True)
     return inputs
 
+# Set up output directory with timestamp
+output_dir = Path('data/checkpoints') / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_spectrogrammify"
+output_dir.mkdir(parents=True, exist_ok=True)
+
 # TrainingArguments
 training_args = TrainingArguments(
-    output_dir="./results",
+    output_dir=str(output_dir),
     per_device_train_batch_size=2,
     num_train_epochs=1,
     logging_steps=10,
@@ -59,10 +64,48 @@ trainer = DPOTrainer(
 # Train
 trainer.train()
 
+# Save the LoRA-adapted model and processor after training
+model.save_pretrained(output_dir)
+processor.save_pretrained(output_dir)
+print(f'Model and processor saved to {output_dir}')
+
 # Inference example
-def predict_spectrogram(spectro):
-    # Dummy: flatten and convert to string
-    inputs = tokenizer([str(spectro.flatten().tolist())], padding=True, truncation=True, return_tensors="pt")
-    outputs = model(**inputs)
-    pred = torch.argmax(outputs.logits, dim=-1)
-    return pred
+
+def predict_spectrogram(image, text):
+    inputs = processor(images=[image], text=[text], return_tensors="pt")
+    outputs = model.generate(**inputs)
+    # Post-process outputs as needed
+    return outputs
+
+# Evaluation: Submit some spectrograms from the dataset to the trained model and check the response vs expected class
+num_eval_samples = 5
+correct = 0
+results = []
+
+for i in range(num_eval_samples):
+    sample = train_dataset[i]
+    image = Image.fromarray(sample["spectrogram_image"])
+    expected_label = sample["label"]
+    # Use a generic prompt for MiniGPT-4 (can be empty or a question)
+    prompt = "What is this a spectrogram of?"
+    inputs = processor(images=[image], text=[prompt], return_tensors="pt")
+    with torch.no_grad():
+        generated_ids = model.generate(**inputs, max_new_tokens=32)
+        response = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+    # Check if the expected class (e.g. 'dog', 'car', etc) is in the response
+    class_name = expected_label.replace('the spectrogram of a ', '').strip().lower()
+    match = class_name in response.lower()
+    results.append({
+        'expected': class_name,
+        'response': response,
+        'match': match
+    })
+    if match:
+        correct += 1
+
+accuracy = correct / num_eval_samples
+with open(output_dir / "eval_classification.txt", "w") as f:
+    for r in results:
+        f.write(f"Expected: {r['expected']} | Response: {r['response']} | Match: {r['match']}\n")
+    f.write(f"\nAccuracy: {accuracy:.2f}\n")
+print(f"Evaluation complete. Accuracy: {accuracy:.2f}. Results saved to {output_dir}/eval_classification.txt")
