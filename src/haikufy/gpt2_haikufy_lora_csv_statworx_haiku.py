@@ -40,7 +40,7 @@ batch_size_per_model = {
 
 # Load models
 # Use a larger model for better haiku generation
-MODEL_NAME = 'gpt2'  # You can change to mistralai/Mistral-7B-v0.1 or another large model if desired
+MODEL_NAME = 'gpt2-large'  # You can change to mistralai/Mistral-7B-v0.1 or another large model if desired
 print(f"Loading model: {MODEL_NAME}")
 tkz = transformers.AutoTokenizer.from_pretrained(MODEL_NAME)
 tkz.pad_token = tkz.eos_token
@@ -245,7 +245,7 @@ for epoch in range(num_epochs):
         pbar.set_postfix({"loss": f"{loss.item():.4f}"})
 
         # Run evaluation every 50 batches
-        if (batch_idx + 1) % 18 == 0:
+        if (batch_idx + 1) % 200 == 0:
             print(f"\n[Eval] Running test prompt evaluation at batch {batch_idx+1}...")
             results = []
             haiku_count = 0
@@ -270,6 +270,13 @@ for epoch in range(num_epochs):
     print(f"Epoch {epoch+1} completed in {epoch_time:.2f}s, Average Loss: {avg_epoch_loss:.4f}")
     # Log epoch loss to wandb
     wandb.log({"avg_epoch_loss": avg_epoch_loss, "epoch": epoch+1, "epoch_time": epoch_time})
+
+    # Save the model at the end of each epoch
+    epoch_output_dir = output_dir / f"epoch_{epoch+1}"
+    epoch_output_dir.mkdir(parents=True, exist_ok=True)
+    plc.save_pretrained(epoch_output_dir)
+    tkz.save_pretrained(epoch_output_dir)
+    print(f"LoRA model for epoch {epoch+1} saved to {epoch_output_dir}")
 
 # Save the trained model
 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -299,5 +306,62 @@ with open(output_file, "w", encoding="utf-8") as f:
     f.write(f"\n{haiku_count}/{len(test_prompts)} outputs are valid haikus.\n")
     print(f"Final evaluation completed. Total haikus: {total_haikus}/{len(test_prompts)} outputs are valid haikus.")
 print(f"Test prompt evaluation logs saved to {output_file}")
+
+# Hyperparameter optimization config
+from itertools import product
+
+# Define search space
+learning_rates = [5e-5, 1e-4]
+lora_rs = [4, 8]
+lora_alphas = [8, 16]
+batch_sizes = [batch_size_per_model[MODEL_NAME] // 2, batch_size_per_model[MODEL_NAME]]
+num_epochs = 3
+
+best_loss = float('inf')
+best_config = None
+
+for lr, lora_r, lora_alpha, batch_size in product(learning_rates, lora_rs, lora_alphas, batch_sizes):
+    print(f"\n=== Training with lr={lr}, lora_r={lora_r}, lora_alpha={lora_alpha}, batch_size={batch_size} ===")
+    # Re-initialize model and optimizer for each run
+    plc = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME)
+    ref = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME)
+    ref.eval()
+    for p in ref.parameters():
+        p.requires_grad_(False)
+    lora_config = LoraConfig(
+        task_type=TaskType.CAUSAL_LM,
+        r=lora_r,
+        lora_alpha=lora_alpha,
+        lora_dropout=0.1,
+        target_modules=["c_attn", "c_proj"],
+        fan_in_fan_out=True,
+        bias="none"
+    )
+    plc = get_peft_model(plc, lora_config)
+    plc.to(device)
+    ref.to(device)
+    optm = torch.optim.Adam(plc.parameters(), lr=lr)
+    # DataLoader with new batch size
+    train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=torch.cuda.is_available())
+    # Training loop (1 epoch for search, can increase)
+    for epoch in range(1):
+        epoch_loss = 0
+        for batch in tqdm.tqdm(train_loader, desc=f"[lr={lr},r={lora_r},alpha={lora_alpha},bs={batch_size}] Epoch {epoch+1}"):
+            optm.zero_grad()
+            loss = train_step(batch)
+            if scaler:
+                scaler.scale(loss).backward()
+                scaler.step(optm)
+                scaler.update()
+            else:
+                loss.backward()
+                optm.step()
+            epoch_loss += loss.item() * len(batch['query'])
+        avg_epoch_loss = epoch_loss / len(dataset)
+        print(f"Config lr={lr}, r={lora_r}, alpha={lora_alpha}, bs={batch_size} -> Avg Loss: {avg_epoch_loss:.4f}")
+        if avg_epoch_loss < best_loss:
+            best_loss = avg_epoch_loss
+            best_config = {'lr': lr, 'lora_r': lora_r, 'lora_alpha': lora_alpha, 'batch_size': batch_size}
+print(f"\nBest config: {best_config} with loss {best_loss:.4f}")
 
 wandb.finish()

@@ -5,6 +5,9 @@ from typing import List, Optional, Tuple
 import functools
 import librosa
 import numpy as np
+import matplotlib.pyplot as plt
+from io import BytesIO
+from PIL import Image
 
 
 class UrbanSoundDataset(Dataset):
@@ -150,13 +153,26 @@ class UrbanSoundDataset(Dataset):
         )
         mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
         spectrogram = torch.tensor(mel_spec_db, dtype=torch.float32)
-        
-        # Get label
-        label = self.class_to_idx[item["classID"]]
-        
+
+        # Convert spectrogram to image (RGB numpy array)
+        fig, ax = plt.subplots(figsize=(2, 2), dpi=64)
+        ax.axis('off')
+        img = ax.imshow(mel_spec_db, aspect='auto', origin='lower', cmap='magma')
+        buf = BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
+        plt.close(fig)
+        buf.seek(0)
+        pil_img = Image.open(buf).convert('RGB')
+        spectrogram_image = np.array(pil_img)
+        buf.close()
+
+        # Get label as descriptive string
+        label = f"the spectrogram of a {item['class']}"
+
         # Create a minimal result dictionary to save memory
         result = {
             "spectrogram": spectrogram,
+            "spectrogram_image": spectrogram_image,  # Add image here
             "label": label,
         }
         

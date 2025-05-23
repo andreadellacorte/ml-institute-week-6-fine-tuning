@@ -80,7 +80,7 @@ def haiku_metrics(text):
     return num_lines, sylls, total_sylls
 
 # UI
-prompt = st.text_area("Enter a prompt for your haiku:", "A memory about nature")
+prompt = st.text_area("Enter a prompt for your haiku:", "A memory involving nature:\n")
 
 # Update checkpoint list based on selected model
 if "lora_checkpoint" not in st.session_state or "lora_model" not in st.session_state or st.session_state.lora_model != selected_model:
